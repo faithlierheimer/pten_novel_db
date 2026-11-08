@@ -1,0 +1,10 @@
+# Ignore all .txt files with "act" and "ch" in the title
+*act*ch*.txt
+
+# Ignore virtual environment folder
+pten_novel_venv/
+
+# Ignore other common files
+__pycache__/
+*.pyc
+.DS_Store
