@@ -14,7 +14,7 @@ Usage
     python3 extract_places.py                  # defaults: novel/ -> csv_data/
     python3 extract_places.py --min-mentions 3
     python3 extract_places.py --no-generic     # skip kitchen / bedroom / porch style places
-    python3 extract_places.py --novel-dir PTEN_manuscript
+    python3 database_building/extract_places.py --novel-dir PTEN_manuscript 
 
 Setup
     pip install spacy && python3 -m spacy download en_core_web_sm
@@ -94,6 +94,7 @@ FREQ_TOP_N = 5           # how many characters to list in places.csv
 HAND_COLUMNS = ["place_type", "parent_place", "notes"]  # never overwritten
 
 BEAT_RE = re.compile(r"^(\d+)_(.+)$")
+CHAPTER_DIR_RE = re.compile(r"^(?:chapter[_ -]?)?(\d+)$", re.I)   # "25" or "chapter_25"
 FILE_RE = re.compile(r"^act_(\d+)_ch_(\d+)_(.+)\.txt$", re.I)
 
 
@@ -109,9 +110,12 @@ def iter_text_files(novel_dir: Path):
         if d.is_dir() and m:
             beats.append((int(m.group(1)), m.group(2), d))
     for beat_no, beat_name, bdir in sorted(beats):
-        chapters = sorted((int(c.name), c) for c in bdir.iterdir() if c.is_dir() and c.name.isdigit())
+        for stray in sorted(bdir.glob("*.txt")):
+            print(f"  ! skipping text file not inside a chapter folder: {stray}", file=sys.stderr)
+        chapters = sorted((int(CHAPTER_DIR_RE.match(c.name).group(1)), c) for c in bdir.iterdir()
+                          if c.is_dir() and CHAPTER_DIR_RE.match(c.name))
         for ch_folder_no, cdir in chapters:
-            for f in sorted(cdir.glob("*.txt")):
+            for f in sorted(p for p in cdir.iterdir() if p.suffix.lower() == ".txt"):
                 m = FILE_RE.match(f.name)
                 if not m:
                     print(f"  ! skipping unrecognised filename: {f}", file=sys.stderr)
@@ -124,6 +128,23 @@ def iter_text_files(novel_dir: Path):
                     "path": f, "beat_no": beat_no, "beat_name": beat_name,
                     "chapter": ch_folder_no, "act": act, "file": f.name,
                 }
+
+
+def diagnose(novel_dir: Path):
+    """Explain why no files were found."""
+    print(f"\nNo text files matched under {novel_dir.resolve()}", file=sys.stderr)
+    kids = sorted(novel_dir.iterdir())
+    print(f"Top-level contents ({len(kids)} items), first 12:", file=sys.stderr)
+    for k in kids[:12]:
+        ok = "beat folder OK" if (k.is_dir() and BEAT_RE.match(k.name)) else "does NOT look like N_beat_name"
+        print(f"  {k.name}  [{ok}]", file=sys.stderr)
+    txts = [p for p in novel_dir.rglob("*") if p.is_file() and p.suffix.lower() == ".txt"]
+    print(f"\n.txt files anywhere below it: {len(txts)}", file=sys.stderr)
+    for p in txts[:5]:
+        print(f"  {p.relative_to(novel_dir)}", file=sys.stderr)
+    print("\nExpected: <novel-dir>/<N_beat_name>/<chapter or chapter_N>/act_<A>_ch_<C>_<title>.txt\n"
+          "If your .txt files are deeper or shallower than that, or named differently, paste this output to Claude.",
+          file=sys.stderr)
 
 
 def load_characters(csv_dir: Path):
@@ -306,6 +327,12 @@ def main():
                     "descs": descs, "chars": present,
                 })
     print(f"Read {n_files} text files, found {len(mentions)} raw place mentions.")
+    if n_files == 0:
+        diagnose(novel_dir)
+        sys.exit(1)
+    if not mentions:
+        sys.exit("Files were read but no places were detected. Nothing written. "
+                 "Check that the spaCy model loaded and try --min-mentions 1.")
 
     # ---- aggregate per place -------------------------------------------------
     by_key = defaultdict(list)
@@ -422,6 +449,9 @@ def main():
             kept_manual += 1
 
     def write(name, rows, fields=None):
+        if not rows:
+            print(f"  skipped {name}: no rows")
+            return
         fields = fields or (list(rows[0].keys()) if rows else [])
         with open(csv_dir / name, "w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
