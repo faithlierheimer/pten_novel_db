@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 .DS_Store
 venv_setup_reminder.md
+#ignore novel manuscript files
+PTEN_manuscript/
