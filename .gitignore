@@ -12,6 +12,7 @@ venv_setup_reminder.md
 #ignore novel manuscript files + data
 PTEN_manuscript/
 csv_data/
-
+issues_worksheet.md
+summaries_worksheet.md
 #ignore duckdb files
 *.duckdb
